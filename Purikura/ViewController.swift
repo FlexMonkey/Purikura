@@ -26,7 +26,7 @@ class ViewController: UIViewController
         [unowned self] in
         
         return  CIContext(EAGLContext: self.eaglContext)
-        }()
+    }()
     
     lazy var detector: CIDetector =
     {
@@ -37,7 +37,7 @@ class ViewController: UIViewController
             options: [
                 CIDetectorAccuracy: CIDetectorAccuracyHigh,
                 CIDetectorTracking: true])
-        }()
+    }()
     
     override func viewDidLoad()
     {
@@ -49,9 +49,7 @@ class ViewController: UIViewController
         imageView.context = eaglContext
         imageView.delegate = self
     }
-    
-    
-    
+
     func initialiseCaptureSession()
     {
         captureSession.sessionPreset = AVCaptureSessionPresetPhoto
@@ -71,7 +69,7 @@ class ViewController: UIViewController
         }
         catch
         {
-            fatalError("Unable to access front camera")
+            fatalError("Unable to add input")
         }
         
         let videoOutput = AVCaptureVideoDataOutput()
@@ -85,7 +83,7 @@ class ViewController: UIViewController
         captureSession.startRunning()
     }
     
-    func eyeImage(cameraImage: CIImage, backgroundImage: CIImage) -> CIImage
+    func eyeImage(cameraImage: CIImage) -> CIImage
     {
         
         if let features = detector.featuresInImage(cameraImage).first as? CIFaceFeature
@@ -93,23 +91,23 @@ class ViewController: UIViewController
         {
             let eyeDistance = features.leftEyePosition.distanceTo(features.rightEyePosition)
             
-            return backgroundImage
+            return cameraImage
                 .imageByApplyingFilter("CIBumpDistortion",
                     withInputParameters: [
                         kCIInputRadiusKey: eyeDistance / 1.25,
                         kCIInputScaleKey: 0.5,
-                        kCIInputCenterKey: CIVector(x: features.leftEyePosition.x, y: features.leftEyePosition.y)])
-                .imageByCroppingToRect(backgroundImage.extent)
+                        kCIInputCenterKey: features.leftEyePosition.toCIVector()])
+                .imageByCroppingToRect(cameraImage.extent)
                 .imageByApplyingFilter("CIBumpDistortion",
                     withInputParameters: [
                         kCIInputRadiusKey: eyeDistance / 1.25,
                         kCIInputScaleKey: 0.5,
-                        kCIInputCenterKey: CIVector(x: features.rightEyePosition.x, y: features.rightEyePosition.y)])
-                .imageByCroppingToRect(backgroundImage.extent)
+                        kCIInputCenterKey: features.rightEyePosition.toCIVector()])
+                .imageByCroppingToRect(cameraImage.extent)
         }
         else
         {
-            return backgroundImage
+            return cameraImage
         }
     }
     
@@ -129,8 +127,8 @@ extension ViewController: AVCaptureVideoDataOutputSampleBufferDelegate
         cameraImage = CIImage(CVPixelBuffer: pixelBuffer!)
         
         dispatch_async(dispatch_get_main_queue())
-            {
-                self.imageView.setNeedsDisplay()
+        {
+            self.imageView.setNeedsDisplay()
         }
     }
 }
@@ -144,13 +142,31 @@ extension ViewController: GLKViewDelegate
             return
         }
         
-        let xxx = eyeImage(cameraImage, backgroundImage: cameraImage)
+        let outputImage = eyeImage(cameraImage)
+
+        let aspect = cameraImage.extent.width / cameraImage.extent.height
+
+        let targetWidth = aspect < 1 ?
+            Int(CGFloat(imageView.drawableHeight) * aspect) :
+            imageView.drawableWidth
         
-        ciContext.drawImage(xxx,
+        let targetHeight = aspect < 1 ?
+            imageView.drawableHeight :
+            Int(CGFloat(imageView.drawableWidth) / aspect)
+        
+        ciContext.drawImage(outputImage,
             inRect: CGRect(x: 0, y: 0,
-                width: imageView.drawableWidth,
-                height: imageView.drawableHeight),
-            fromRect: xxx.extent)
+                width: targetWidth,
+                height: targetHeight),
+            fromRect: outputImage.extent)
+    }
+}
+
+extension CGPoint
+{
+    func toCIVector() -> CIVector
+    {
+        return CIVector(x: self.x, y: self.y)
     }
 }
 
