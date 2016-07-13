@@ -14,9 +14,9 @@ import CoreMedia
 
 class ViewController: UIViewController
 {
-    let eaglContext = EAGLContext(API: .OpenGLES2)
+    let eaglContext = EAGLContext(api: .openGLES2)
     let captureSession = AVCaptureSession()
-    
+    let serialQueue = DispatchQueue(label: "Purikura", attributes: .serial)
     let imageView = GLKView()
 
     var cameraImage: CIImage?
@@ -25,7 +25,7 @@ class ViewController: UIViewController
     {
         [unowned self] in
         
-        return  CIContext(EAGLContext: self.eaglContext)
+        return  CIContext(eaglContext: self.eaglContext!)
     }()
     
     lazy var detector: CIDetector =
@@ -37,7 +37,7 @@ class ViewController: UIViewController
             options: [
                 CIDetectorAccuracy: CIDetectorAccuracyHigh,
                 CIDetectorTracking: true])
-    }()
+    }()!
     
     override func viewDidLoad()
     {
@@ -46,7 +46,7 @@ class ViewController: UIViewController
         initialiseCaptureSession()
         
         view.addSubview(imageView)
-        imageView.context = eaglContext
+        imageView.context = eaglContext!
         imageView.delegate = self
     }
 
@@ -54,8 +54,8 @@ class ViewController: UIViewController
     {
         captureSession.sessionPreset = AVCaptureSessionPresetPhoto
         
-        guard let frontCamera = (AVCaptureDevice.devicesWithMediaType(AVMediaTypeVideo) as! [AVCaptureDevice])
-            .filter({ $0.position == .Front })
+        guard let frontCamera = (AVCaptureDevice.devices(withMediaType: AVMediaTypeVideo) as! [AVCaptureDevice])
+            .filter({ $0.position == .front })
             .first else
         {
             fatalError("Unable to access front camera")
@@ -74,7 +74,7 @@ class ViewController: UIViewController
         
         let videoOutput = AVCaptureVideoDataOutput()
         
-        videoOutput.setSampleBufferDelegate(self, queue: dispatch_queue_create("sample buffer delegate", DISPATCH_QUEUE_SERIAL))
+        videoOutput.setSampleBufferDelegate(self, queue: serialQueue)
         if captureSession.canAddOutput(videoOutput)
         {
             captureSession.addOutput(videoOutput)
@@ -86,24 +86,24 @@ class ViewController: UIViewController
     func eyeImage(cameraImage: CIImage) -> CIImage
     {
         
-        if let features = detector.featuresInImage(cameraImage).first as? CIFaceFeature
+        if let features = detector.features(in: cameraImage).first as? CIFaceFeature
             where features.hasLeftEyePosition && features.hasRightEyePosition
         {
-            let eyeDistance = features.leftEyePosition.distanceTo(features.rightEyePosition)
+            let eyeDistance = features.leftEyePosition.distanceTo(point: features.rightEyePosition)
             
             return cameraImage
-                .imageByApplyingFilter("CIBumpDistortion",
+                .applyingFilter("CIBumpDistortion",
                     withInputParameters: [
                         kCIInputRadiusKey: eyeDistance / 1.25,
                         kCIInputScaleKey: 0.5,
                         kCIInputCenterKey: features.leftEyePosition.toCIVector()])
-                .imageByCroppingToRect(cameraImage.extent)
-                .imageByApplyingFilter("CIBumpDistortion",
+                .cropping(to: cameraImage.extent)
+                .applyingFilter("CIBumpDistortion",
                     withInputParameters: [
                         kCIInputRadiusKey: eyeDistance / 1.25,
                         kCIInputScaleKey: 0.5,
                         kCIInputCenterKey: features.rightEyePosition.toCIVector()])
-                .imageByCroppingToRect(cameraImage.extent)
+                .cropping(to: cameraImage.extent)
         }
         else
         {
@@ -119,14 +119,14 @@ class ViewController: UIViewController
 
 extension ViewController: AVCaptureVideoDataOutputSampleBufferDelegate
 {
-    func captureOutput(captureOutput: AVCaptureOutput!, didOutputSampleBuffer sampleBuffer: CMSampleBuffer!, fromConnection connection: AVCaptureConnection!)
+    func captureOutput(_ captureOutput: AVCaptureOutput!, didOutputSampleBuffer sampleBuffer: CMSampleBuffer!, from connection: AVCaptureConnection!)
     {
-        connection.videoOrientation = AVCaptureVideoOrientation(rawValue: UIApplication.sharedApplication().statusBarOrientation.rawValue)!
+        connection.videoOrientation = AVCaptureVideoOrientation(rawValue: UIApplication.shared().statusBarOrientation.rawValue)!
         
         let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
-        cameraImage = CIImage(CVPixelBuffer: pixelBuffer!)
+        cameraImage = CIImage(cvPixelBuffer: pixelBuffer!)
         
-        dispatch_async(dispatch_get_main_queue())
+        DispatchQueue.main.async
         {
             self.imageView.setNeedsDisplay()
         }
@@ -135,14 +135,14 @@ extension ViewController: AVCaptureVideoDataOutputSampleBufferDelegate
 
 extension ViewController: GLKViewDelegate
 {
-    func glkView(view: GLKView, drawInRect rect: CGRect)
+    func glkView(_ view: GLKView, drawIn rect: CGRect)
     {
         guard let cameraImage = cameraImage else
         {
             return
         }
         
-        let outputImage = eyeImage(cameraImage)
+        let outputImage = eyeImage(cameraImage: cameraImage)
 
         let aspect = cameraImage.extent.width / cameraImage.extent.height
 
@@ -154,11 +154,11 @@ extension ViewController: GLKViewDelegate
             imageView.drawableHeight :
             Int(CGFloat(imageView.drawableWidth) / aspect)
         
-        ciContext.drawImage(outputImage,
-            inRect: CGRect(x: 0, y: 0,
-                width: targetWidth,
-                height: targetHeight),
-            fromRect: outputImage.extent)
+        ciContext.draw(outputImage,
+                       in: CGRect(x: 0, y: 0,
+                                  width: targetWidth,
+                                  height: targetHeight),
+                       from: outputImage.extent)
     }
 }
 
